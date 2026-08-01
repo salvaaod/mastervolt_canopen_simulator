@@ -34,6 +34,21 @@ are padded to eight bytes.
    sent immediately, then both frames are sent every five seconds. Values edited
    while running are used for the next transmission.
 
+## Battery simulation mode
+
+Select **Enable 24 V / 300 Ah battery simulation** to replace the manual fields
+with an accelerated 8-cell LiFePO4 model. It always begins at 100% while
+discharging, changes direction at 20%, charges to 100%, and repeats. Each
+five-second transmission represents five simulated minutes.
+
+The load/charge current contains smooth and random variation, charging tapers
+near full, voltage follows the LiFePO4 plateau and load sag, and temperature
+responds gradually to current and ambient variation. SOC and estimated time to
+the next limit are calculated from the 300 Ah capacity. Positive current means
+discharge and negative current means charge. The direction indicator and all
+five transmitted values update before every CAN transmission. Clear the check
+box to restore manual editing.
+
 The defaults select device index 0, CAN channel 0, USBCAN-II (`device type 4`),
 and 250 kbit/s (`Timing0=0x01`, `Timing1=0x1C`). Change `DeviceConfig` in the
 script if your adapter or network differs.

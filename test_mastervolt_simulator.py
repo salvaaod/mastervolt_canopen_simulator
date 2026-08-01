@@ -1,7 +1,8 @@
+import random
 import struct
 import unittest
 
-from mastervolt_simulator import encode_frames
+from mastervolt_simulator import BatterySimulation, encode_frames
 
 
 class EncodeFramesTests(unittest.TestCase):
@@ -25,6 +26,30 @@ class EncodeFramesTests(unittest.TestCase):
         for values in invalid:
             with self.subTest(values=values), self.assertRaises(ValueError):
                 encode_frames(*values)
+
+
+class BatterySimulationTests(unittest.TestCase):
+    def test_starts_full_and_discharge_values_are_plausible(self):
+        simulation = BatterySimulation(rng=random.Random(1))
+        sample = simulation.step()
+        self.assertEqual(sample["mode"], "Discharging")
+        self.assertLess(sample["soc"], 100)
+        self.assertGreater(sample["amps"], 0)
+        self.assertGreaterEqual(sample["volts"], 23)
+        self.assertLessEqual(sample["volts"], 29.2)
+
+    def test_cycles_at_twenty_and_one_hundred_percent(self):
+        simulation = BatterySimulation(soc=20.01, rng=random.Random(2))
+        charging = simulation.step(60)
+        self.assertEqual(charging["mode"], "Charging")
+        self.assertEqual(charging["soc"], 20)
+        self.assertLess(charging["amps"], 0)
+
+        simulation.soc = 99.99
+        full = simulation.step(60)
+        self.assertEqual(full["mode"], "Discharging")
+        self.assertEqual(full["soc"], 100)
+        self.assertGreater(full["amps"], 0)
 
 
 if __name__ == "__main__":

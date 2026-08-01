@@ -1,4 +1,3 @@
-import random
 import struct
 import unittest
 
@@ -30,7 +29,7 @@ class EncodeFramesTests(unittest.TestCase):
 
 class BatterySimulationTests(unittest.TestCase):
     def test_starts_full_and_discharge_values_are_plausible(self):
-        simulation = BatterySimulation(rng=random.Random(1))
+        simulation = BatterySimulation()
         sample = simulation.step()
         self.assertEqual(sample["mode"], "Discharging")
         self.assertLess(simulation.soc, 100)
@@ -39,7 +38,7 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertLessEqual(sample["volts"], 29.2)
 
     def test_cycles_at_twenty_and_one_hundred_percent(self):
-        simulation = BatterySimulation(rng=random.Random(2))
+        simulation = BatterySimulation()
         charging = simulation.step(30)
         self.assertEqual(charging["mode"], "Charging")
         self.assertEqual(charging["soc"], 20)
@@ -51,11 +50,28 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertGreater(full["amps"], 0)
 
     def test_each_phase_counts_down_from_thirty_minutes(self):
-        simulation = BatterySimulation(rng=random.Random(3))
+        simulation = BatterySimulation()
         sample = simulation.step(5)
         self.assertEqual(sample["time_minutes"], 25)
         self.assertEqual(sample["mode"], "Discharging")
         self.assertGreater(sample["soc"], 20)
+
+    def test_current_matches_capacity_and_accelerated_soc_change(self):
+        simulation = BatterySimulation()
+        start_soc = simulation.soc
+        sample = simulation.step(0.01)
+        removed_ah = (start_soc - simulation.soc) / 100 * simulation.capacity_ah
+        expected_ah = sample["amps"] * (0.01 / 60) * 16
+        self.assertAlmostEqual(removed_ah, expected_ah, places=3)
+
+    def test_charge_tapers_and_voltage_rises_under_charge(self):
+        simulation = BatterySimulation(mode="Charging", soc=20)
+        start = simulation.step(0)
+        simulation.phase_elapsed_minutes = 29
+        simulation._update_soc()
+        near_full = simulation.step(0)
+        self.assertGreater(abs(start["amps"]), abs(near_full["amps"]))
+        self.assertGreater(near_full["volts"], start["volts"])
 
 
 if __name__ == "__main__":

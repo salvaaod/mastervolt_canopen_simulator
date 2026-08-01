@@ -38,14 +38,17 @@ are padded to eight bytes.
 
 Select **Enable 24 V / 300 Ah battery simulation** to replace the manual fields
 with an 8-cell LiFePO4 model. It always begins at 100% and discharges to 20%
-over 30 minutes, then charges to 100% over 30 minutes and repeats. The profile
-runs in real time: each five-second transmission advances it by five seconds.
+over 30 minutes, then charges to 100% over 30 minutes and repeats. Each
+five-second transmission advances the test profile by five seconds. The battery
+response uses a 16x accelerated clock, so the displayed 30 A average discharge
+is equivalent to an eight-hour, 240 Ah discharge compressed into 30 minutes.
 
-The load/charge current contains smooth and random variation, charging tapers
-near full, voltage follows the LiFePO4 plateau and load sag, and temperature
-responds gradually to current and ambient variation. SOC and estimated time to
-the next phase change count down through the 30-minute profile. Positive current
-means discharge and negative current means charge. The direction indicator and all
+Current is derived from the SOC curve and 300 Ah capacity, with a varying
+discharge load, 96% charge efficiency, and charge-current taper. Voltage follows
+an 8-cell LiFePO4 open-circuit curve plus pack-resistance sag or charge lift.
+Temperature responds to I²R heating, cooling, and ambient variation. The time
+field counts down to the next 30-minute phase change. Positive current means
+discharge and negative current means charge. The direction indicator and all
 five transmitted values update before every CAN transmission. Clear the check
 box to restore manual editing.
 

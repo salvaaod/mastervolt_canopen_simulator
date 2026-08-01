@@ -5,10 +5,9 @@ from __future__ import annotations
 import ctypes
 import math
 import os
-import random
 import struct
 import tkinter as tk
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -18,6 +17,7 @@ FRAME_385 = 0x385
 SEND_INTERVAL_MS = 5_000
 SIMULATION_STEP_MINUTES = SEND_INTERVAL_MS / 60_000
 PHASE_DURATION_MINUTES = 30.0
+TIME_ACCELERATION = 16.0
 
 
 class CAN_OBJ(ctypes.Structure):
@@ -66,7 +66,6 @@ class BatterySimulation:
     temperature: float = 25.0
     elapsed_minutes: float = 0.0
     phase_elapsed_minutes: float = 0.0
-    rng: random.Random = field(default_factory=random.Random)
 
     def reset(self):
         """Every newly enabled simulation starts full and discharging."""
@@ -78,31 +77,44 @@ class BatterySimulation:
 
     def _update_soc(self):
         progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
-        # Smoothstep produces gentler changes at the beginning and end of a phase.
-        profile = progress * progress * (3.0 - 2.0 * progress)
         if self.mode == "Discharging":
+            # Integral of a varying domestic load; its mean is exactly one.
+            profile = progress
+            profile += 0.25 / (2.0 * math.pi) * (1.0 - math.cos(2.0 * math.pi * progress))
+            profile += 0.12 / (6.0 * math.pi) * (1.0 - math.cos(6.0 * math.pi * progress))
             self.soc = 100.0 - 80.0 * profile
         else:
+            # Integral of a charge current which tapers as the battery fills.
+            profile = 1.6 * progress - 0.6 * progress**2
+            profile += 0.1 / (4.0 * math.pi) * (1.0 - math.cos(4.0 * math.pi * progress))
             self.soc = 20.0 + 80.0 * profile
 
     def _current(self) -> float:
-        phase = self.elapsed_minutes / 60.0
-        variation = 5.0 * math.sin(phase * 1.7) + 2.5 * math.sin(phase * 5.1)
-        variation += self.rng.uniform(-2.0, 2.0)
+        progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
+        # The 16x clock maps the 30-minute test phase to an eight-hour battery
+        # discharge. Current is the derivative of the SOC profiles above.
+        average_current = self.capacity_ah * 0.8 / (
+            PHASE_DURATION_MINUTES / 60.0 * TIME_ACCELERATION
+        )
         if self.mode == "Discharging":
-            # A changing domestic load averaging about 30 A.
-            return max(12.0, min(50.0, 30.0 + variation))
+            shape = 1.0 + 0.25 * math.sin(2.0 * math.pi * progress)
+            shape += 0.12 * math.sin(6.0 * math.pi * progress)
+            return average_current * shape
 
-        # Approximate CC/CV charging: taper progressively for the final 10%.
-        taper = 1.0 if self.soc < 90.0 else max(0.12, (100.0 - self.soc) / 10.0)
-        return -max(5.0, min(55.0, (46.0 + variation) * taper))
+        charge_efficiency = 0.96
+        shape = 1.6 - 1.2 * progress + 0.1 * math.sin(4.0 * math.pi * progress)
+        return -(average_current / charge_efficiency) * shape
 
     def _voltage(self, current: float) -> float:
         normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
         # An 8-cell LiFePO4 plateau with steeper knees near either limit.
-        open_circuit = 25.55 + 1.05 * normalized
-        open_circuit += 1.25 * normalized**8 - 0.45 * (1.0 - normalized) ** 7
+        open_circuit = 25.65 + 0.75 * normalized
+        open_circuit += 0.75 * normalized**8 - 0.55 * (1.0 - normalized) ** 7
+        # About 12 milliohms pack resistance gives load sag and charge lift.
         loaded = open_circuit - current * 0.012
+        if current < 0:
+            # Cell polarization produces the familiar CV-region rise near full.
+            loaded += 0.9 * normalized**6
         ripple = 0.04 * math.sin(self.elapsed_minutes / 7.0)
         return max(23.0, min(29.2, loaded + ripple))
 
@@ -116,9 +128,11 @@ class BatterySimulation:
         self._update_soc()
         current = self._current()
 
-        target_temp = 25.0 + abs(current) * 0.09
+        # First-order thermal response to I²R heating and a slowly varying room.
         ambient_wave = 1.2 * math.sin(self.elapsed_minutes / 180.0)
-        self.temperature += (target_temp + ambient_wave - self.temperature) * 0.08
+        target_temp = 25.0 + ambient_wave + current * current * 0.0015
+        thermal_response = 1.0 - math.exp(-minutes / 20.0) if minutes else 0.0
+        self.temperature += (target_temp - self.temperature) * thermal_response
         return {
             "soc": round(self.soc),
             "time_minutes": math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes),

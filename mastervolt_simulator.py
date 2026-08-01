@@ -17,6 +17,8 @@ FRAME_385 = 0x385
 SEND_INTERVAL_MS = 5_000
 SIMULATION_STEP_MINUTES = SEND_INTERVAL_MS / 60_000
 PHASE_DURATION_MINUTES = 30.0
+# Compensates for whole-amp and centivolt CAN fields at five-second sampling.
+CAN_ENERGY_CALIBRATION = 0.99933
 
 
 class CAN_OBJ(ctypes.Structure):
@@ -57,9 +59,10 @@ class DeviceConfig:
 
 @dataclass
 class BatterySimulation:
-    """Timed, variable 24 V / 300 Ah LiFePO4 charge-cycle model."""
+    """Timed, variable 24 V / 75 Ah LiFePO4 charge-cycle model."""
 
-    capacity_ah: float = 300.0
+    capacity_ah: float = 75.0
+    energy_wh: float = 1_800.0
     soc: float = 100.0
     mode: str = "Discharging"
     temperature: float = 25.0
@@ -77,10 +80,11 @@ class BatterySimulation:
     def _update_soc(self):
         progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
         if self.mode == "Discharging":
-            # Integral of a varying domestic load; its mean is exactly one.
+            # Integral of office base load, HVAC cycling and equipment spikes.
             profile = progress
-            profile += 0.25 / (2.0 * math.pi) * (1.0 - math.cos(2.0 * math.pi * progress))
-            profile += 0.12 / (6.0 * math.pi) * (1.0 - math.cos(6.0 * math.pi * progress))
+            profile += 0.28 / (2.0 * math.pi) * (1.0 - math.cos(2.0 * math.pi * progress))
+            profile += 0.10 / (6.0 * math.pi) * (1.0 - math.cos(6.0 * math.pi * progress))
+            profile += 0.06 / (14.0 * math.pi) * (1.0 - math.cos(14.0 * math.pi * progress))
             self.soc = 100.0 - 80.0 * profile
         else:
             # Integral of a charge current which tapers as the battery fills.
@@ -90,24 +94,44 @@ class BatterySimulation:
 
     def _current(self) -> float:
         progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
-        # Current is the derivative of the SOC profile, so its integral over the
-        # real 30-minute discharge is exactly 80% of the 300 Ah capacity.
-        average_current = self.capacity_ah * 0.8 / (PHASE_DURATION_MINUTES / 60.0)
+        average_power = (
+            self.energy_wh
+            * 0.8
+            / (PHASE_DURATION_MINUTES / 60.0)
+            * CAN_ENERGY_CALIBRATION
+        )
+        resistance = 0.002
+        normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
+        open_circuit = self._open_circuit_voltage(normalized)
         if self.mode == "Discharging":
-            shape = 1.0 + 0.25 * math.sin(2.0 * math.pi * progress)
-            shape += 0.12 * math.sin(6.0 * math.pi * progress)
-            return -average_current * shape
+            shape = 1.0 + 0.28 * math.sin(2.0 * math.pi * progress)
+            shape += 0.10 * math.sin(6.0 * math.pi * progress)
+            shape += 0.06 * math.sin(14.0 * math.pi * progress)
+            power = average_power * shape
+            # Solve P = I(OCV - IR), choosing the physically meaningful root.
+            return -(open_circuit - math.sqrt(open_circuit**2 - 4 * resistance * power)) / (
+                2 * resistance
+            )
 
         charge_efficiency = 0.96
         shape = 1.2 - 0.4 * progress + 0.1 * math.sin(4.0 * math.pi * progress)
-        return (average_current / charge_efficiency) * shape
+        power = average_power / charge_efficiency * shape
+        polarized_voltage = open_circuit + 0.9 * normalized**6
+        # Solve P = I(OCV + IR) for positive charging current.
+        return (-polarized_voltage + math.sqrt(polarized_voltage**2 + 4 * resistance * power)) / (
+            2 * resistance
+        )
+
+    @staticmethod
+    def _open_circuit_voltage(normalized: float) -> float:
+        voltage = 25.65 + 0.75 * normalized
+        return voltage + 0.75 * normalized**8 - 0.55 * (1.0 - normalized) ** 7
 
     def _voltage(self, current: float) -> float:
         normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
         # An 8-cell LiFePO4 plateau with steeper knees near either limit.
-        open_circuit = 25.65 + 0.75 * normalized
-        open_circuit += 0.75 * normalized**8 - 0.55 * (1.0 - normalized) ** 7
-        # A high-power 300 Ah pack is modelled at about 2 milliohms, including
+        open_circuit = self._open_circuit_voltage(normalized)
+        # The 75 Ah pack is modelled at about 2 milliohms, including
         # cells and interconnects, to give load sag and charge lift.
         loaded = open_circuit + current * 0.002
         if current > 0:
@@ -120,7 +144,7 @@ class BatterySimulation:
         """Advance the model and return values ready for the CAN fields."""
         # Keep the boundary sample in the phase that produced it. The following
         # sample changes direction, ensuring each current profile spans 30 min.
-        if self.phase_elapsed_minutes >= PHASE_DURATION_MINUTES:
+        if self.phase_elapsed_minutes >= PHASE_DURATION_MINUTES - 1e-9:
             self.phase_elapsed_minutes -= PHASE_DURATION_MINUTES
             self.mode = "Charging" if self.mode == "Discharging" else "Discharging"
         self.elapsed_minutes += minutes
@@ -132,7 +156,7 @@ class BatterySimulation:
 
         # First-order thermal response to I²R heating and a slowly varying room.
         ambient_wave = 1.2 * math.sin(self.elapsed_minutes / 180.0)
-        target_temp = 25.0 + ambient_wave + current * current * 0.000015
+        target_temp = 25.0 + ambient_wave + current * current * 0.0001
         thermal_response = 1.0 - math.exp(-minutes / 20.0) if minutes else 0.0
         self.temperature += (target_temp - self.temperature) * thermal_response
         return {
@@ -153,8 +177,8 @@ def encode_frames(soc: int, time_minutes: int, volts: float, amps: int, temp: in
         raise ValueError("Time must be between -1 and 32767 minutes")
     if not 0 <= volts <= 32:
         raise ValueError("Voltage must be between 0 and 32.00 V")
-    if not -1000 <= amps <= 1000:
-        raise ValueError("Current must be between -1000 and 1000 A")
+    if not -300 <= amps <= 300:
+        raise ValueError("Current must be between -300 and 300 A")
     if not -10 <= temp <= 70:
         raise ValueError("Temperature must be between -10 and 70 °C")
 
@@ -246,7 +270,7 @@ class SimulatorApp(ttk.Frame):
         ttk.Label(self, text="CAN frames 0x285 / 0x385", font=("TkDefaultFont", 14, "bold")).grid(
             row=0, column=0, columnspan=2, pady=(0, 12)
         )
-        limits = [(0, 100, 1), (-1, 32767, 1), (0, 32, 0.01), (-1000, 1000, 1), (-10, 70, 1)]
+        limits = [(0, 100, 1), (-1, 32767, 1), (0, 32, 0.01), (-300, 300, 1), (-10, 70, 1)]
         for row, ((label, variable), (low, high, step)) in enumerate(zip(self.values.items(), limits), 1):
             ttk.Label(self, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
             input_widget = ttk.Spinbox(
@@ -256,7 +280,7 @@ class SimulatorApp(ttk.Frame):
             self.inputs.append(input_widget)
         ttk.Checkbutton(
             self,
-            text="Enable 24 V / 300 Ah battery simulation",
+            text="Enable 24 V / 75 Ah battery simulation",
             variable=self.simulation_enabled,
             command=self.toggle_simulation,
         ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(10, 2))

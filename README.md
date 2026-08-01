@@ -47,8 +47,8 @@ Current is derived from the SOC curve and 300 Ah capacity, with a varying
 discharge load, 96% charge efficiency, and charge-current taper. Voltage follows
 an 8-cell LiFePO4 open-circuit curve plus pack-resistance sag or charge lift.
 Temperature responds to I²R heating, cooling, and ambient variation. The time
-field counts down to the next 30-minute phase change. Positive current means
-discharge and negative current means charge. The direction indicator and all
+field counts down to the next 30-minute phase change. Negative current means
+discharge and positive current means charge. The direction indicator and all
 five transmitted values update before every CAN transmission. Clear the check
 box to restore manual editing.
 

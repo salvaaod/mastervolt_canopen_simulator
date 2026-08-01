@@ -99,11 +99,11 @@ class BatterySimulation:
         if self.mode == "Discharging":
             shape = 1.0 + 0.25 * math.sin(2.0 * math.pi * progress)
             shape += 0.12 * math.sin(6.0 * math.pi * progress)
-            return average_current * shape
+            return -average_current * shape
 
         charge_efficiency = 0.96
         shape = 1.6 - 1.2 * progress + 0.1 * math.sin(4.0 * math.pi * progress)
-        return -(average_current / charge_efficiency) * shape
+        return (average_current / charge_efficiency) * shape
 
     def _voltage(self, current: float) -> float:
         normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
@@ -111,8 +111,8 @@ class BatterySimulation:
         open_circuit = 25.65 + 0.75 * normalized
         open_circuit += 0.75 * normalized**8 - 0.55 * (1.0 - normalized) ** 7
         # About 12 milliohms pack resistance gives load sag and charge lift.
-        loaded = open_circuit - current * 0.012
-        if current < 0:
+        loaded = open_circuit + current * 0.012
+        if current > 0:
             # Cell polarization produces the familiar CV-region rise near full.
             loaded += 0.9 * normalized**6
         ripple = 0.04 * math.sin(self.elapsed_minutes / 7.0)

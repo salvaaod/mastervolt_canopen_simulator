@@ -33,7 +33,7 @@ class BatterySimulationTests(unittest.TestCase):
         sample = simulation.step()
         self.assertEqual(sample["mode"], "Discharging")
         self.assertLess(simulation.soc, 100)
-        self.assertGreater(sample["amps"], 0)
+        self.assertLess(sample["amps"], 0)
         self.assertGreaterEqual(sample["volts"], 23)
         self.assertLessEqual(sample["volts"], 29.2)
 
@@ -42,12 +42,12 @@ class BatterySimulationTests(unittest.TestCase):
         charging = simulation.step(30)
         self.assertEqual(charging["mode"], "Charging")
         self.assertEqual(charging["soc"], 20)
-        self.assertLess(charging["amps"], 0)
+        self.assertGreater(charging["amps"], 0)
 
         full = simulation.step(30)
         self.assertEqual(full["mode"], "Discharging")
         self.assertEqual(full["soc"], 100)
-        self.assertGreater(full["amps"], 0)
+        self.assertLess(full["amps"], 0)
 
     def test_each_phase_counts_down_from_thirty_minutes(self):
         simulation = BatterySimulation()
@@ -61,7 +61,7 @@ class BatterySimulationTests(unittest.TestCase):
         start_soc = simulation.soc
         sample = simulation.step(0.01)
         removed_ah = (start_soc - simulation.soc) / 100 * simulation.capacity_ah
-        expected_ah = sample["amps"] * (0.01 / 60) * 16
+        expected_ah = -sample["amps"] * (0.01 / 60) * 16
         self.assertAlmostEqual(removed_ah, expected_ah, places=3)
 
     def test_charge_tapers_and_voltage_rises_under_charge(self):

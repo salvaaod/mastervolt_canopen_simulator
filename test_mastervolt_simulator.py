@@ -19,7 +19,7 @@ class EncodeFramesTests(unittest.TestCase):
             (-1, 0, 0, 0, 0),
             (0, -2, 0, 0, 0),
             (0, 0, 32.01, 0, 0),
-            (0, 0, 0, 301, 0),
+            (0, 0, 0, 1001, 0),
             (0, 0, 0, 0, 71),
         ]
         for values in invalid:
@@ -39,12 +39,22 @@ class BatterySimulationTests(unittest.TestCase):
 
     def test_cycles_at_twenty_and_one_hundred_percent(self):
         simulation = BatterySimulation()
-        charging = simulation.step(30)
+        discharged = simulation.step(30)
+        self.assertEqual(discharged["mode"], "Discharging")
+        self.assertEqual(discharged["soc"], 20)
+        self.assertLess(discharged["amps"], 0)
+
+        charging = simulation.step(0)
         self.assertEqual(charging["mode"], "Charging")
         self.assertEqual(charging["soc"], 20)
         self.assertGreater(charging["amps"], 0)
 
-        full = simulation.step(30)
+        charged = simulation.step(30)
+        self.assertEqual(charged["mode"], "Charging")
+        self.assertEqual(charged["soc"], 100)
+        self.assertGreater(charged["amps"], 0)
+
+        full = simulation.step(0)
         self.assertEqual(full["mode"], "Discharging")
         self.assertEqual(full["soc"], 100)
         self.assertLess(full["amps"], 0)
@@ -56,13 +66,29 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertEqual(sample["mode"], "Discharging")
         self.assertGreater(sample["soc"], 20)
 
-    def test_current_matches_capacity_and_accelerated_soc_change(self):
+    def test_current_matches_capacity_and_soc_change(self):
         simulation = BatterySimulation()
         start_soc = simulation.soc
         sample = simulation.step(0.01)
         removed_ah = (start_soc - simulation.soc) / 100 * simulation.capacity_ah
-        expected_ah = -sample["amps"] * (0.01 / 60) * 16
+        expected_ah = -sample["amps"] * (0.01 / 60)
         self.assertAlmostEqual(removed_ah, expected_ah, places=3)
+
+    def test_real_thirty_minute_discharge_integrates_to_240_ah(self):
+        simulation = BatterySimulation()
+        step_minutes = 5 / 60
+        discharged_ah = 0.0
+        discharge_wh = 0.0
+        for _ in range(round(30 / step_minutes)):
+            sample = simulation.step(step_minutes)
+            discharged_ah += -sample["amps"] * step_minutes / 60
+            discharge_wh += sample["volts"] * -sample["amps"] * step_minutes / 60
+
+        self.assertAlmostEqual(discharged_ah, 240, delta=0.1)
+        self.assertEqual(sample["soc"], 20)
+        self.assertEqual(sample["mode"], "Discharging")
+        self.assertGreater(discharge_wh, 5_500)
+        self.assertLess(discharge_wh, 6_500)
 
     def test_charge_tapers_and_voltage_rises_under_charge(self):
         simulation = BatterySimulation(mode="Charging", soc=20)

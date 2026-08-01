@@ -14,7 +14,7 @@ are padded to eight bytes.
 | `0x285` | 0-1 | SOC | 0 to 100 % |
 | `0x285` | 2-3 | Time | -1 to 32767 minutes |
 | `0x285` | 4-5 | Voltage | 0 to 32.00 V, raw value = V x 100 |
-| `0x285` | 6-7 | Current | -300 to 300 A |
+| `0x285` | 6-7 | Current | -1000 to 1000 A |
 | `0x385` | 0-1 | Temperature | -10 to 70 °C |
 | `0x385` | 2-7 | Padding | zero |
 
@@ -39,13 +39,12 @@ are padded to eight bytes.
 Select **Enable 24 V / 300 Ah battery simulation** to replace the manual fields
 with an 8-cell LiFePO4 model. It always begins at 100% and discharges to 20%
 over 30 minutes, then charges to 100% over 30 minutes and repeats. Each
-five-second transmission advances the test profile by five seconds. The battery
-response uses a 16x accelerated clock, so the displayed 30 A average discharge
-is equivalent to an eight-hour, 240 Ah discharge compressed into 30 minutes.
+five-second transmission advances the profile by five seconds. The discharge
+current averages 480 A, so its real 30-minute integral is exactly 240 Ah.
 
 Current is derived from the SOC curve and 300 Ah capacity, with a varying
 discharge load, 96% charge efficiency, and charge-current taper. Voltage follows
-an 8-cell LiFePO4 open-circuit curve plus pack-resistance sag or charge lift.
+an 8-cell LiFePO4 open-circuit curve plus 2 mΩ pack-resistance sag or charge lift.
 Temperature responds to I²R heating, cooling, and ambient variation. The time
 field counts down to the next 30-minute phase change. Negative current means
 discharge and positive current means charge. The direction indicator and all

@@ -33,23 +33,29 @@ class BatterySimulationTests(unittest.TestCase):
         simulation = BatterySimulation(rng=random.Random(1))
         sample = simulation.step()
         self.assertEqual(sample["mode"], "Discharging")
-        self.assertLess(sample["soc"], 100)
+        self.assertLess(simulation.soc, 100)
         self.assertGreater(sample["amps"], 0)
         self.assertGreaterEqual(sample["volts"], 23)
         self.assertLessEqual(sample["volts"], 29.2)
 
     def test_cycles_at_twenty_and_one_hundred_percent(self):
-        simulation = BatterySimulation(soc=20.01, rng=random.Random(2))
-        charging = simulation.step(60)
+        simulation = BatterySimulation(rng=random.Random(2))
+        charging = simulation.step(30)
         self.assertEqual(charging["mode"], "Charging")
         self.assertEqual(charging["soc"], 20)
         self.assertLess(charging["amps"], 0)
 
-        simulation.soc = 99.99
-        full = simulation.step(60)
+        full = simulation.step(30)
         self.assertEqual(full["mode"], "Discharging")
         self.assertEqual(full["soc"], 100)
         self.assertGreater(full["amps"], 0)
+
+    def test_each_phase_counts_down_from_thirty_minutes(self):
+        simulation = BatterySimulation(rng=random.Random(3))
+        sample = simulation.step(5)
+        self.assertEqual(sample["time_minutes"], 25)
+        self.assertEqual(sample["mode"], "Discharging")
+        self.assertGreater(sample["soc"], 20)
 
 
 if __name__ == "__main__":

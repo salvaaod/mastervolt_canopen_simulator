@@ -16,7 +16,8 @@ from tkinter import messagebox, ttk
 FRAME_285 = 0x285
 FRAME_385 = 0x385
 SEND_INTERVAL_MS = 5_000
-SIMULATION_STEP_MINUTES = 5.0
+SIMULATION_STEP_MINUTES = SEND_INTERVAL_MS / 60_000
+PHASE_DURATION_MINUTES = 30.0
 
 
 class CAN_OBJ(ctypes.Structure):
@@ -57,13 +58,14 @@ class DeviceConfig:
 
 @dataclass
 class BatterySimulation:
-    """Accelerated, variable 24 V / 300 Ah LiFePO4 charge-cycle model."""
+    """Timed, variable 24 V / 300 Ah LiFePO4 charge-cycle model."""
 
     capacity_ah: float = 300.0
     soc: float = 100.0
     mode: str = "Discharging"
     temperature: float = 25.0
     elapsed_minutes: float = 0.0
+    phase_elapsed_minutes: float = 0.0
     rng: random.Random = field(default_factory=random.Random)
 
     def reset(self):
@@ -72,6 +74,16 @@ class BatterySimulation:
         self.mode = "Discharging"
         self.temperature = 25.0
         self.elapsed_minutes = 0.0
+        self.phase_elapsed_minutes = 0.0
+
+    def _update_soc(self):
+        progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
+        # Smoothstep produces gentler changes at the beginning and end of a phase.
+        profile = progress * progress * (3.0 - 2.0 * progress)
+        if self.mode == "Discharging":
+            self.soc = 100.0 - 80.0 * profile
+        else:
+            self.soc = 20.0 + 80.0 * profile
 
     def _current(self) -> float:
         phase = self.elapsed_minutes / 60.0
@@ -96,27 +108,20 @@ class BatterySimulation:
 
     def step(self, minutes: float = SIMULATION_STEP_MINUTES) -> dict[str, float | int | str]:
         """Advance the model and return values ready for the CAN fields."""
-        current = self._current()
-        self.soc -= current * (minutes / 60.0) / self.capacity_ah * 100.0
         self.elapsed_minutes += minutes
-
-        if self.mode == "Discharging" and self.soc <= 20.0:
-            self.soc = 20.0
-            self.mode = "Charging"
-            current = self._current()
-        elif self.mode == "Charging" and self.soc >= 100.0:
-            self.soc = 100.0
-            self.mode = "Discharging"
-            current = self._current()
+        self.phase_elapsed_minutes += minutes
+        while self.phase_elapsed_minutes >= PHASE_DURATION_MINUTES:
+            self.phase_elapsed_minutes -= PHASE_DURATION_MINUTES
+            self.mode = "Charging" if self.mode == "Discharging" else "Discharging"
+        self._update_soc()
+        current = self._current()
 
         target_temp = 25.0 + abs(current) * 0.09
         ambient_wave = 1.2 * math.sin(self.elapsed_minutes / 180.0)
         self.temperature += (target_temp + ambient_wave - self.temperature) * 0.08
-        boundary = 20.0 if self.mode == "Discharging" else 100.0
-        hours = abs(boundary - self.soc) / 100.0 * self.capacity_ah / max(abs(current), 0.1)
         return {
             "soc": round(self.soc),
-            "time_minutes": min(32767, round(hours * 60.0)),
+            "time_minutes": math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes),
             "volts": round(self._voltage(current), 2),
             "amps": round(current),
             "temperature": round(self.temperature),

@@ -37,15 +37,15 @@ are padded to eight bytes.
 ## Battery simulation mode
 
 Select **Enable 24 V / 300 Ah battery simulation** to replace the manual fields
-with an accelerated 8-cell LiFePO4 model. It always begins at 100% while
-discharging, changes direction at 20%, charges to 100%, and repeats. Each
-five-second transmission represents five simulated minutes.
+with an 8-cell LiFePO4 model. It always begins at 100% and discharges to 20%
+over 30 minutes, then charges to 100% over 30 minutes and repeats. The profile
+runs in real time: each five-second transmission advances it by five seconds.
 
 The load/charge current contains smooth and random variation, charging tapers
 near full, voltage follows the LiFePO4 plateau and load sag, and temperature
 responds gradually to current and ambient variation. SOC and estimated time to
-the next limit are calculated from the 300 Ah capacity. Positive current means
-discharge and negative current means charge. The direction indicator and all
+the next phase change count down through the 30-minute profile. Positive current
+means discharge and negative current means charge. The direction indicator and all
 five transmitted values update before every CAN transmission. Clear the check
 box to restore manual editing.
 

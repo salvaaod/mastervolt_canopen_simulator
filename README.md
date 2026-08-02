@@ -14,7 +14,7 @@ are padded to eight bytes.
 | `0x285` | 0-1 | SOC | 0 to 100 % |
 | `0x285` | 2-3 | Time | -1 to 32767 minutes |
 | `0x285` | 4-5 | Voltage | 0 to 32.00 V, raw value = V x 100 |
-| `0x285` | 6-7 | Current | -300 to 300 A |
+| `0x285` | 6-7 | Current | -300.0 to 300.0 A, raw value = A x 10 |
 | `0x385` | 0-1 | Temperature | -10 to 70 °C |
 | `0x385` | 2-7 | Padding | zero |
 
@@ -46,7 +46,7 @@ is 1,440 Wh (80% of the nominal 1,800 Wh battery energy).
 The discharge profile combines an office base load with smooth HVAC cycles and
 shorter equipment-load variations. Current is calculated from requested power,
 battery voltage, and pack resistance so downstream voltage/current integration
-matches the energy profile after whole-amp and centivolt CAN rounding. Charging
+matches the energy profile after deciamp and centivolt CAN rounding. Charging
 uses 96% efficiency and current taper. Voltage follows an 8-cell LiFePO4
 open-circuit curve plus 2 mΩ pack-resistance sag or charge lift.
 Temperature responds to I²R heating, cooling, and ambient variation. During

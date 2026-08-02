@@ -17,8 +17,8 @@ FRAME_385 = 0x385
 SEND_INTERVAL_MS = 5_000
 SIMULATION_STEP_MINUTES = SEND_INTERVAL_MS / 60_000
 PHASE_DURATION_MINUTES = 30.0
-# Compensates for whole-amp and centivolt CAN fields at five-second sampling.
-CAN_ENERGY_CALIBRATION = 0.99933
+# Compensates for deciamp and centivolt CAN fields at five-second sampling.
+CAN_ENERGY_CALIBRATION = 0.99938
 
 
 class CAN_OBJ(ctypes.Structure):
@@ -167,13 +167,13 @@ class BatterySimulation:
                 else math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes)
             ),
             "volts": round(self._voltage(current), 2),
-            "amps": round(current),
+            "amps": round(current, 1),
             "temperature": round(self.temperature),
             "mode": self.mode,
         }
 
 
-def encode_frames(soc: int, time_minutes: int, volts: float, amps: int, temp: int):
+def encode_frames(soc: int, time_minutes: int, volts: float, amps: float, temp: int):
     """Return both eight-byte payloads using signed 16-bit little endian fields."""
     if not 0 <= soc <= 100:
         raise ValueError("SOC must be between 0 and 100 %")
@@ -187,7 +187,8 @@ def encode_frames(soc: int, time_minutes: int, volts: float, amps: int, temp: in
         raise ValueError("Temperature must be between -10 and 70 °C")
 
     raw_volts = round(volts * 100)
-    data_285 = struct.pack("<hhhh", soc, time_minutes, raw_volts, amps)
+    raw_amps = round(amps * 10)
+    data_285 = struct.pack("<hhhh", soc, time_minutes, raw_volts, raw_amps)
     data_385 = struct.pack("<h", temp) + bytes(6)
     return data_285, data_385
 
@@ -258,7 +259,7 @@ class SimulatorApp(ttk.Frame):
             "SOC (%)": tk.StringVar(value="80"),
             "Time (min)": tk.StringVar(value="120"),
             "Voltage (V)": tk.StringVar(value="24.00"),
-            "Current (A)": tk.StringVar(value="0"),
+            "Current (A)": tk.StringVar(value="0.0"),
             "Temperature (°C)": tk.StringVar(value="25"),
         }
         self.status = tk.StringVar(value="Disconnected")
@@ -274,7 +275,7 @@ class SimulatorApp(ttk.Frame):
         ttk.Label(self, text="CAN frames 0x285 / 0x385", font=("TkDefaultFont", 14, "bold")).grid(
             row=0, column=0, columnspan=2, pady=(0, 12)
         )
-        limits = [(0, 100, 1), (-1, 32767, 1), (0, 32, 0.01), (-300, 300, 1), (-10, 70, 1)]
+        limits = [(0, 100, 1), (-1, 32767, 1), (0, 32, 0.01), (-300, 300, 0.1), (-10, 70, 1)]
         for row, ((label, variable), (low, high, step)) in enumerate(zip(self.values.items(), limits), 1):
             ttk.Label(self, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
             input_widget = ttk.Spinbox(
@@ -310,7 +311,7 @@ class SimulatorApp(ttk.Frame):
         self.values["SOC (%)"].set(str(sample["soc"]))
         self.values["Time (min)"].set(str(sample["time_minutes"]))
         self.values["Voltage (V)"].set(f'{sample["volts"]:.2f}')
-        self.values["Current (A)"].set(str(sample["amps"]))
+        self.values["Current (A)"].set(f'{sample["amps"]:.1f}')
         self.values["Temperature (°C)"].set(str(sample["temperature"]))
         arrow = "▼" if sample["mode"] == "Discharging" else "▲"
         limit = "20%" if sample["mode"] == "Discharging" else "100%"
@@ -335,7 +336,7 @@ class SimulatorApp(ttk.Frame):
                 int(self.values["SOC (%)"].get()),
                 int(self.values["Time (min)"].get()),
                 float(self.values["Voltage (V)"].get()),
-                int(self.values["Current (A)"].get()),
+                float(self.values["Current (A)"].get()),
                 int(self.values["Temperature (°C)"].get()),
             )
         except ValueError as error:

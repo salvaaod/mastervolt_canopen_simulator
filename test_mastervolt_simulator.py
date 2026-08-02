@@ -7,12 +7,18 @@ from mastervolt_simulator import BatterySimulation, encode_frames
 class EncodeFramesTests(unittest.TestCase):
     def test_encodes_signed_little_endian_values(self):
         frame_285, frame_385 = encode_frames(100, -1, 32.0, -300, -10)
-        self.assertEqual(frame_285, struct.pack("<hhhh", 100, -1, 3200, -300))
+        self.assertEqual(frame_285, struct.pack("<hhhh", 100, -1, 3200, -3000))
         self.assertEqual(frame_385, struct.pack("<h", -10) + bytes(6))
 
     def test_rounds_voltage_to_nearest_centivolt(self):
         frame_285, _ = encode_frames(50, 1, 12.345, 10, 20)
         self.assertEqual(struct.unpack("<h", frame_285[4:6])[0], 1234)
+
+    def test_encodes_current_in_deciamps(self):
+        positive, _ = encode_frames(50, 1, 24.0, 134.5, 20)
+        negative, _ = encode_frames(50, 1, 24.0, -12.34, 20)
+        self.assertEqual(struct.unpack("<h", positive[6:8])[0], 1345)
+        self.assertEqual(struct.unpack("<h", negative[6:8])[0], -123)
 
     def test_rejects_out_of_range_values(self):
         invalid = [
@@ -36,6 +42,7 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertLess(sample["amps"], 0)
         self.assertGreaterEqual(sample["volts"], 23)
         self.assertLessEqual(sample["volts"], 29.2)
+        self.assertEqual(sample["amps"], round(sample["amps"], 1))
 
     def test_cycles_at_twenty_and_one_hundred_percent(self):
         simulation = BatterySimulation()

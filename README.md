@@ -34,6 +34,28 @@ are padded to eight bytes.
    sent immediately, then both frames are sent every five seconds. Values edited
    while running are used for the next transmission.
 
+## Battery simulation mode
+
+Select **Enable 24 V / 75 Ah battery simulation** to replace the manual fields
+with an 8-cell LiFePO4 model. It always begins at 100% and discharges to 20%
+over 30 minutes, then charges to 100% over 30 minutes and repeats. Each
+five-second transmission advances the profile by five seconds. The discharge
+power averages approximately 2,880 W, so its real 30-minute CAN-sample integral
+is 1,440 Wh (80% of the nominal 1,800 Wh battery energy).
+
+The discharge profile combines an office base load with smooth HVAC cycles and
+shorter equipment-load variations. Current is calculated from requested power,
+battery voltage, and pack resistance so downstream voltage/current integration
+matches the energy profile after whole-amp and centivolt CAN rounding. Charging
+uses 96% efficiency and current taper. Voltage follows an 8-cell LiFePO4
+open-circuit curve plus 2 mΩ pack-resistance sag or charge lift.
+Temperature responds to I²R heating, cooling, and ambient variation. During
+discharge, the time field counts down to the 20% limit. During charge, when
+current is zero or positive, the time field is `-1` (remaining time unknown).
+Negative current means discharge and positive current means charge. The
+direction indicator and all five transmitted values update before every CAN
+transmission. Clear the check box to restore manual editing.
+
 The defaults select device index 0, CAN channel 0, USBCAN-II (`device type 4`),
 and 250 kbit/s (`Timing0=0x01`, `Timing1=0x1C`). Change `DeviceConfig` in the
 script if your adapter or network differs.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import math
 import os
 import struct
 import tkinter as tk
@@ -14,6 +15,10 @@ from tkinter import messagebox, ttk
 FRAME_285 = 0x285
 FRAME_385 = 0x385
 SEND_INTERVAL_MS = 5_000
+SIMULATION_STEP_MINUTES = SEND_INTERVAL_MS / 60_000
+PHASE_DURATION_MINUTES = 30.0
+# Compensates for whole-amp and centivolt CAN fields at five-second sampling.
+CAN_ENERGY_CALIBRATION = 0.99933
 
 
 class CAN_OBJ(ctypes.Structure):
@@ -50,6 +55,122 @@ class DeviceConfig:
     can_index: int = 0
     timing0: int = 0x01
     timing1: int = 0x1C  # 250 kbit/s
+
+
+@dataclass
+class BatterySimulation:
+    """Timed, variable 24 V / 75 Ah LiFePO4 charge-cycle model."""
+
+    capacity_ah: float = 75.0
+    energy_wh: float = 1_800.0
+    soc: float = 100.0
+    mode: str = "Discharging"
+    temperature: float = 25.0
+    elapsed_minutes: float = 0.0
+    phase_elapsed_minutes: float = 0.0
+
+    def reset(self):
+        """Every newly enabled simulation starts full and discharging."""
+        self.soc = 100.0
+        self.mode = "Discharging"
+        self.temperature = 25.0
+        self.elapsed_minutes = 0.0
+        self.phase_elapsed_minutes = 0.0
+
+    def _update_soc(self):
+        progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
+        if self.mode == "Discharging":
+            # Integral of office base load, HVAC cycling and equipment spikes.
+            profile = progress
+            profile += 0.28 / (2.0 * math.pi) * (1.0 - math.cos(2.0 * math.pi * progress))
+            profile += 0.10 / (6.0 * math.pi) * (1.0 - math.cos(6.0 * math.pi * progress))
+            profile += 0.06 / (14.0 * math.pi) * (1.0 - math.cos(14.0 * math.pi * progress))
+            self.soc = 100.0 - 80.0 * profile
+        else:
+            # Integral of a charge current which tapers as the battery fills.
+            profile = 1.2 * progress - 0.2 * progress**2
+            profile += 0.1 / (4.0 * math.pi) * (1.0 - math.cos(4.0 * math.pi * progress))
+            self.soc = 20.0 + 80.0 * profile
+
+    def _current(self) -> float:
+        progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
+        average_power = (
+            self.energy_wh
+            * 0.8
+            / (PHASE_DURATION_MINUTES / 60.0)
+            * CAN_ENERGY_CALIBRATION
+        )
+        resistance = 0.002
+        normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
+        open_circuit = self._open_circuit_voltage(normalized)
+        if self.mode == "Discharging":
+            shape = 1.0 + 0.28 * math.sin(2.0 * math.pi * progress)
+            shape += 0.10 * math.sin(6.0 * math.pi * progress)
+            shape += 0.06 * math.sin(14.0 * math.pi * progress)
+            power = average_power * shape
+            # Solve P = I(OCV - IR), choosing the physically meaningful root.
+            return -(open_circuit - math.sqrt(open_circuit**2 - 4 * resistance * power)) / (
+                2 * resistance
+            )
+
+        charge_efficiency = 0.96
+        shape = 1.2 - 0.4 * progress + 0.1 * math.sin(4.0 * math.pi * progress)
+        power = average_power / charge_efficiency * shape
+        polarized_voltage = open_circuit + 0.9 * normalized**6
+        # Solve P = I(OCV + IR) for positive charging current.
+        return (-polarized_voltage + math.sqrt(polarized_voltage**2 + 4 * resistance * power)) / (
+            2 * resistance
+        )
+
+    @staticmethod
+    def _open_circuit_voltage(normalized: float) -> float:
+        voltage = 25.65 + 0.75 * normalized
+        return voltage + 0.75 * normalized**8 - 0.55 * (1.0 - normalized) ** 7
+
+    def _voltage(self, current: float) -> float:
+        normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
+        # An 8-cell LiFePO4 plateau with steeper knees near either limit.
+        open_circuit = self._open_circuit_voltage(normalized)
+        # The 75 Ah pack is modelled at about 2 milliohms, including
+        # cells and interconnects, to give load sag and charge lift.
+        loaded = open_circuit + current * 0.002
+        if current > 0:
+            # Cell polarization produces the familiar CV-region rise near full.
+            loaded += 0.9 * normalized**6
+        ripple = 0.04 * math.sin(self.elapsed_minutes / 7.0)
+        return max(23.0, min(29.2, loaded + ripple))
+
+    def step(self, minutes: float = SIMULATION_STEP_MINUTES) -> dict[str, float | int | str]:
+        """Advance the model and return values ready for the CAN fields."""
+        # Keep the boundary sample in the phase that produced it. The following
+        # sample changes direction, ensuring each current profile spans 30 min.
+        if self.phase_elapsed_minutes >= PHASE_DURATION_MINUTES - 1e-9:
+            self.phase_elapsed_minutes -= PHASE_DURATION_MINUTES
+            self.mode = "Charging" if self.mode == "Discharging" else "Discharging"
+        self.elapsed_minutes += minutes
+        self.phase_elapsed_minutes = min(
+            PHASE_DURATION_MINUTES, self.phase_elapsed_minutes + minutes
+        )
+        self._update_soc()
+        current = self._current()
+
+        # First-order thermal response to I²R heating and a slowly varying room.
+        ambient_wave = 1.2 * math.sin(self.elapsed_minutes / 180.0)
+        target_temp = 25.0 + ambient_wave + current * current * 0.0001
+        thermal_response = 1.0 - math.exp(-minutes / 20.0) if minutes else 0.0
+        self.temperature += (target_temp - self.temperature) * thermal_response
+        return {
+            "soc": round(self.soc),
+            "time_minutes": (
+                -1
+                if current >= 0
+                else math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes)
+            ),
+            "volts": round(self._voltage(current), 2),
+            "amps": round(current),
+            "temperature": round(self.temperature),
+            "mode": self.mode,
+        }
 
 
 def encode_frames(soc: int, time_minutes: int, volts: float, amps: int, temp: int):
@@ -131,6 +252,7 @@ class SimulatorApp(ttk.Frame):
         super().__init__(root, padding=16)
         self.root = root
         self.device = GCANDevice(DeviceConfig())
+        self.simulation = BatterySimulation()
         self.timer_id = None
         self.values = {
             "SOC (%)": tk.StringVar(value="80"),
@@ -140,6 +262,9 @@ class SimulatorApp(ttk.Frame):
             "Temperature (°C)": tk.StringVar(value="25"),
         }
         self.status = tk.StringVar(value="Disconnected")
+        self.simulation_enabled = tk.BooleanVar(value=False)
+        self.cycle_status = tk.StringVar(value="Simulation off")
+        self.inputs = []
         self._build()
 
     def _build(self):
@@ -152,13 +277,44 @@ class SimulatorApp(ttk.Frame):
         limits = [(0, 100, 1), (-1, 32767, 1), (0, 32, 0.01), (-300, 300, 1), (-10, 70, 1)]
         for row, ((label, variable), (low, high, step)) in enumerate(zip(self.values.items(), limits), 1):
             ttk.Label(self, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
-            ttk.Spinbox(self, textvariable=variable, from_=low, to=high, increment=step, width=14).grid(
-                row=row, column=1, sticky="ew", pady=3
+            input_widget = ttk.Spinbox(
+                self, textvariable=variable, from_=low, to=high, increment=step, width=14
             )
+            input_widget.grid(row=row, column=1, sticky="ew", pady=3)
+            self.inputs.append(input_widget)
+        ttk.Checkbutton(
+            self,
+            text="Enable 24 V / 75 Ah battery simulation",
+            variable=self.simulation_enabled,
+            command=self.toggle_simulation,
+        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(10, 2))
+        ttk.Label(self, textvariable=self.cycle_status, font=("TkDefaultFont", 10, "bold")).grid(
+            row=7, column=0, columnspan=2, sticky="w", pady=(0, 4)
+        )
         self.button = ttk.Button(self, text="Connect and start", command=self.toggle)
-        self.button.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(14, 6))
-        ttk.Label(self, textvariable=self.status).grid(row=7, column=0, columnspan=2)
+        self.button.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(8, 6))
+        ttk.Label(self, textvariable=self.status, wraplength=390).grid(row=9, column=0, columnspan=2)
         self.root.protocol("WM_DELETE_WINDOW", self.shutdown)
+
+    def toggle_simulation(self):
+        enabled = self.simulation_enabled.get()
+        for input_widget in self.inputs:
+            input_widget.configure(state="disabled" if enabled else "normal")
+        if enabled:
+            self.simulation.reset()
+            self._show_simulation_values(self.simulation.step(0))
+        else:
+            self.cycle_status.set("Simulation off — manual values enabled")
+
+    def _show_simulation_values(self, sample):
+        self.values["SOC (%)"].set(str(sample["soc"]))
+        self.values["Time (min)"].set(str(sample["time_minutes"]))
+        self.values["Voltage (V)"].set(f'{sample["volts"]:.2f}')
+        self.values["Current (A)"].set(str(sample["amps"]))
+        self.values["Temperature (°C)"].set(str(sample["temperature"]))
+        arrow = "▼" if sample["mode"] == "Discharging" else "▲"
+        limit = "20%" if sample["mode"] == "Discharging" else "100%"
+        self.cycle_status.set(f'{arrow} {sample["mode"]} — next limit: {limit}')
 
     def toggle(self):
         if self.device.is_open:
@@ -189,6 +345,8 @@ class SimulatorApp(ttk.Frame):
         if not self.device.is_open:
             return
         try:
+            if self.simulation_enabled.get():
+                self._show_simulation_values(self.simulation.step())
             data_285, data_385 = self._payloads()
             self.device.send(FRAME_285, data_285)
             self.device.send(FRAME_385, data_385)

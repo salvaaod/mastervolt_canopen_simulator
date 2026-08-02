@@ -161,7 +161,11 @@ class BatterySimulation:
         self.temperature += (target_temp - self.temperature) * thermal_response
         return {
             "soc": round(self.soc),
-            "time_minutes": math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes),
+            "time_minutes": (
+                -1
+                if current >= 0
+                else math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes)
+            ),
             "volts": round(self._voltage(current), 2),
             "amps": round(current),
             "temperature": round(self.temperature),

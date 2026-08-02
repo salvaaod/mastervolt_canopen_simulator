@@ -49,11 +49,12 @@ battery voltage, and pack resistance so downstream voltage/current integration
 matches the energy profile after whole-amp and centivolt CAN rounding. Charging
 uses 96% efficiency and current taper. Voltage follows an 8-cell LiFePO4
 open-circuit curve plus 2 mΩ pack-resistance sag or charge lift.
-Temperature responds to I²R heating, cooling, and ambient variation. The time
-field counts down to the next 30-minute phase change. Negative current means
-discharge and positive current means charge. The direction indicator and all
-five transmitted values update before every CAN transmission. Clear the check
-box to restore manual editing.
+Temperature responds to I²R heating, cooling, and ambient variation. During
+discharge, the time field counts down to the 20% limit. During charge, when
+current is zero or positive, the time field is `-1` (remaining time unknown).
+Negative current means discharge and positive current means charge. The
+direction indicator and all five transmitted values update before every CAN
+transmission. Clear the check box to restore manual editing.
 
 The defaults select device index 0, CAN channel 0, USBCAN-II (`device type 4`),
 and 250 kbit/s (`Timing0=0x01`, `Timing1=0x1C`). Change `DeviceConfig` in the

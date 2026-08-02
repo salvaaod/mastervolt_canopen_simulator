@@ -48,6 +48,7 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertEqual(charging["mode"], "Charging")
         self.assertEqual(charging["soc"], 20)
         self.assertGreater(charging["amps"], 0)
+        self.assertEqual(charging["time_minutes"], -1)
 
         charged = simulation.step(30)
         self.assertEqual(charged["mode"], "Charging")
@@ -65,6 +66,15 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertEqual(sample["time_minutes"], 25)
         self.assertEqual(sample["mode"], "Discharging")
         self.assertGreater(sample["soc"], 20)
+
+    def test_non_negative_current_reports_unknown_remaining_time(self):
+        simulation = BatterySimulation(mode="Charging", soc=20)
+        sample = simulation.step(5)
+        self.assertGreaterEqual(sample["amps"], 0)
+        self.assertEqual(sample["time_minutes"], -1)
+
+        simulation._current = lambda: 0
+        self.assertEqual(simulation.step(5)["time_minutes"], -1)
 
     def test_current_and_voltage_match_energy_and_soc_change(self):
         simulation = BatterySimulation()

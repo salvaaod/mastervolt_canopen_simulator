@@ -66,7 +66,7 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertEqual(charging["mode"], "Charging")
         self.assertEqual(charging["soc"], 20)
         self.assertGreater(charging["amps"], 0)
-        self.assertTrue(math.isnan(charging["time_minutes"]))
+        self.assertTrue(math.isnan(charging["remaining_seconds"]))
 
         charged = simulation.step(30)
         self.assertEqual(charged["mode"], "Charging")
@@ -78,10 +78,10 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertEqual(full["soc"], 100)
         self.assertLess(full["amps"], 0)
 
-    def test_each_phase_counts_down_from_thirty_minutes(self):
+    def test_each_phase_reports_remaining_time_in_seconds(self):
         simulation = BatterySimulation()
         sample = simulation.step(5)
-        self.assertEqual(sample["time_minutes"], 25)
+        self.assertEqual(sample["remaining_seconds"], 1_500)
         self.assertEqual(sample["mode"], "Discharging")
         self.assertGreater(sample["soc"], 20)
 
@@ -89,10 +89,10 @@ class BatterySimulationTests(unittest.TestCase):
         simulation = BatterySimulation(mode="Charging", soc=20)
         sample = simulation.step(5)
         self.assertGreaterEqual(sample["amps"], 0)
-        self.assertTrue(math.isnan(sample["time_minutes"]))
+        self.assertTrue(math.isnan(sample["remaining_seconds"]))
 
         simulation._current = lambda: 0
-        self.assertTrue(math.isnan(simulation.step(5)["time_minutes"]))
+        self.assertTrue(math.isnan(simulation.step(5)["remaining_seconds"]))
 
     def test_current_and_voltage_match_energy_and_soc_change(self):
         simulation = BatterySimulation()

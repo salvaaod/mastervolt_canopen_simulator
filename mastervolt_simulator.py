@@ -161,10 +161,10 @@ class BatterySimulation:
         self.temperature += (target_temp - self.temperature) * thermal_response
         return {
             "soc": round(self.soc),
-            "time_minutes": (
+            "remaining_seconds": (
                 math.nan
                 if current >= 0
-                else math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes)
+                else round((PHASE_DURATION_MINUTES - self.phase_elapsed_minutes) * 60)
             ),
             "volts": round(self._voltage(current), 2),
             "amps": round(current, 1),
@@ -173,12 +173,17 @@ class BatterySimulation:
         }
 
 
-def encode_frames(soc: float, time_minutes: float, volts: float, amps: float, temp: float):
+def encode_frames(
+    soc: float, remaining_seconds: float, volts: float, amps: float, temp: float
+):
     """Return the 0x285 measurements and 0x385 remaining-time payloads."""
     if not 0 <= soc <= 100:
         raise ValueError("SOC must be between 0 and 100 %")
-    if not math.isnan(time_minutes) and not 0 <= time_minutes <= 3.4028235e38:
-        raise ValueError("Time must be non-negative or NaN (no data)")
+    if (
+        not math.isnan(remaining_seconds)
+        and not 0 <= remaining_seconds <= 3.4028235e38
+    ):
+        raise ValueError("Remaining time must be non-negative or NaN (no data)")
     if not 0 <= volts <= 32:
         raise ValueError("Voltage must be between 0 and 32.00 V")
     if not -300 <= amps <= 300:
@@ -191,7 +196,7 @@ def encode_frames(soc: float, time_minutes: float, volts: float, amps: float, te
     raw_temp = round(temp * 10)
     raw_amps = round(amps * 10)
     data_285 = struct.pack("<hhhh", raw_soc, raw_volts, raw_temp, raw_amps)
-    data_385 = struct.pack("<f", time_minutes) + bytes(4)
+    data_385 = struct.pack("<f", remaining_seconds) + bytes(4)
     return data_285, data_385
 
 
@@ -259,7 +264,7 @@ class SimulatorApp(ttk.Frame):
         self.timer_id = None
         self.values = {
             "SOC (%)": tk.StringVar(value="80"),
-            "Time (min, NaN = no data)": tk.StringVar(value="120"),
+            "Remaining time (s, NaN = no data)": tk.StringVar(value="120"),
             "Voltage (V)": tk.StringVar(value="24.00"),
             "Current (A)": tk.StringVar(value="0.0"),
             "Temperature (°C)": tk.StringVar(value="25"),
@@ -317,7 +322,9 @@ class SimulatorApp(ttk.Frame):
 
     def _show_simulation_values(self, sample):
         self.values["SOC (%)"].set(str(sample["soc"]))
-        self.values["Time (min, NaN = no data)"].set(str(sample["time_minutes"]))
+        self.values["Remaining time (s, NaN = no data)"].set(
+            str(sample["remaining_seconds"])
+        )
         self.values["Voltage (V)"].set(f'{sample["volts"]:.2f}')
         self.values["Current (A)"].set(f'{sample["amps"]:.1f}')
         self.values["Temperature (°C)"].set(str(sample["temperature"]))
@@ -342,7 +349,7 @@ class SimulatorApp(ttk.Frame):
         try:
             return encode_frames(
                 float(self.values["SOC (%)"].get()),
-                float(self.values["Time (min, NaN = no data)"].get()),
+                float(self.values["Remaining time (s, NaN = no data)"].get()),
                 float(self.values["Voltage (V)"].get()),
                 float(self.values["Current (A)"].get()),
                 float(self.values["Temperature (°C)"].get()),

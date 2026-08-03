@@ -1,3 +1,4 @@
+import math
 import struct
 import unittest
 
@@ -6,13 +7,23 @@ from mastervolt_simulator import BatterySimulation, encode_frames
 
 class EncodeFramesTests(unittest.TestCase):
     def test_encodes_signed_little_endian_values(self):
-        frame_285, frame_385 = encode_frames(100, -1, 32.0, -300, -10)
-        self.assertEqual(frame_285, struct.pack("<hhhh", 100, -1, 3200, -3000))
-        self.assertEqual(frame_385, struct.pack("<h", -10) + bytes(6))
+        frame_285, frame_385 = encode_frames(100, float("nan"), 32.0, -300, -10)
+        self.assertEqual(frame_285, struct.pack("<hhhh", 1000, 3200, -100, -3000))
+        self.assertTrue(math.isnan(struct.unpack("<f", frame_385[:4])[0]))
+        self.assertEqual(frame_385[4:], bytes(4))
+
+    def test_encodes_remaining_time_as_float32(self):
+        _, frame_385 = encode_frames(50, 12.5, 24.0, 10, 20)
+        self.assertEqual(frame_385, struct.pack("<f", 12.5) + bytes(4))
 
     def test_rounds_voltage_to_nearest_centivolt(self):
         frame_285, _ = encode_frames(50, 1, 12.345, 10, 20)
-        self.assertEqual(struct.unpack("<h", frame_285[4:6])[0], 1234)
+        self.assertEqual(struct.unpack("<h", frame_285[2:4])[0], 1234)
+
+    def test_encodes_soc_and_temperature_in_tenths(self):
+        frame_285, _ = encode_frames(50.5, 1, 24.0, 10, 20.3)
+        self.assertEqual(struct.unpack("<h", frame_285[0:2])[0], 505)
+        self.assertEqual(struct.unpack("<h", frame_285[4:6])[0], 203)
 
     def test_encodes_current_in_deciamps(self):
         positive, _ = encode_frames(50, 1, 24.0, 134.5, 20)
@@ -23,7 +34,7 @@ class EncodeFramesTests(unittest.TestCase):
     def test_rejects_out_of_range_values(self):
         invalid = [
             (-1, 0, 0, 0, 0),
-            (0, -2, 0, 0, 0),
+            (0, -1, 0, 0, 0),
             (0, 0, 32.01, 0, 0),
             (0, 0, 0, 301, 0),
             (0, 0, 0, 0, 71),
@@ -55,7 +66,7 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertEqual(charging["mode"], "Charging")
         self.assertEqual(charging["soc"], 20)
         self.assertGreater(charging["amps"], 0)
-        self.assertEqual(charging["time_minutes"], -1)
+        self.assertTrue(math.isnan(charging["time_minutes"]))
 
         charged = simulation.step(30)
         self.assertEqual(charged["mode"], "Charging")
@@ -78,10 +89,10 @@ class BatterySimulationTests(unittest.TestCase):
         simulation = BatterySimulation(mode="Charging", soc=20)
         sample = simulation.step(5)
         self.assertGreaterEqual(sample["amps"], 0)
-        self.assertEqual(sample["time_minutes"], -1)
+        self.assertTrue(math.isnan(sample["time_minutes"]))
 
         simulation._current = lambda: 0
-        self.assertEqual(simulation.step(5)["time_minutes"], -1)
+        self.assertTrue(math.isnan(simulation.step(5)["time_minutes"]))
 
     def test_current_and_voltage_match_energy_and_soc_change(self):
         simulation = BatterySimulation()

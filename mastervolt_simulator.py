@@ -162,7 +162,7 @@ class BatterySimulation:
         return {
             "soc": round(self.soc),
             "time_minutes": (
-                -1
+                math.nan
                 if current >= 0
                 else math.ceil(PHASE_DURATION_MINUTES - self.phase_elapsed_minutes)
             ),
@@ -173,12 +173,12 @@ class BatterySimulation:
         }
 
 
-def encode_frames(soc: int, time_minutes: int, volts: float, amps: float, temp: int):
-    """Return both eight-byte payloads using signed 16-bit little endian fields."""
+def encode_frames(soc: float, time_minutes: float, volts: float, amps: float, temp: float):
+    """Return the 0x285 measurements and 0x385 remaining-time payloads."""
     if not 0 <= soc <= 100:
         raise ValueError("SOC must be between 0 and 100 %")
-    if not -1 <= time_minutes <= 32767:
-        raise ValueError("Time must be between -1 and 32767 minutes")
+    if not math.isnan(time_minutes) and not 0 <= time_minutes <= 3.4028235e38:
+        raise ValueError("Time must be non-negative or NaN (no data)")
     if not 0 <= volts <= 32:
         raise ValueError("Voltage must be between 0 and 32.00 V")
     if not -300 <= amps <= 300:
@@ -186,10 +186,12 @@ def encode_frames(soc: int, time_minutes: int, volts: float, amps: float, temp: 
     if not -10 <= temp <= 70:
         raise ValueError("Temperature must be between -10 and 70 °C")
 
+    raw_soc = round(soc * 10)
     raw_volts = round(volts * 100)
+    raw_temp = round(temp * 10)
     raw_amps = round(amps * 10)
-    data_285 = struct.pack("<hhhh", soc, time_minutes, raw_volts, raw_amps)
-    data_385 = struct.pack("<h", temp) + bytes(6)
+    data_285 = struct.pack("<hhhh", raw_soc, raw_volts, raw_temp, raw_amps)
+    data_385 = struct.pack("<f", time_minutes) + bytes(4)
     return data_285, data_385
 
 
@@ -257,7 +259,7 @@ class SimulatorApp(ttk.Frame):
         self.timer_id = None
         self.values = {
             "SOC (%)": tk.StringVar(value="80"),
-            "Time (min)": tk.StringVar(value="120"),
+            "Time (min, NaN = no data)": tk.StringVar(value="120"),
             "Voltage (V)": tk.StringVar(value="24.00"),
             "Current (A)": tk.StringVar(value="0.0"),
             "Temperature (°C)": tk.StringVar(value="25"),
@@ -275,7 +277,13 @@ class SimulatorApp(ttk.Frame):
         ttk.Label(self, text="CAN frames 0x285 / 0x385", font=("TkDefaultFont", 14, "bold")).grid(
             row=0, column=0, columnspan=2, pady=(0, 12)
         )
-        limits = [(0, 100, 1), (-1, 32767, 1), (0, 32, 0.01), (-300, 300, 0.1), (-10, 70, 1)]
+        limits = [
+            (0, 100, 0.1),
+            (0, 3.4028235e38, 1),
+            (0, 32, 0.01),
+            (-300, 300, 0.1),
+            (-10, 70, 0.1),
+        ]
         for row, ((label, variable), (low, high, step)) in enumerate(zip(self.values.items(), limits), 1):
             ttk.Label(self, text=label).grid(row=row, column=0, sticky="w", padx=(0, 12), pady=3)
             input_widget = ttk.Spinbox(
@@ -309,7 +317,7 @@ class SimulatorApp(ttk.Frame):
 
     def _show_simulation_values(self, sample):
         self.values["SOC (%)"].set(str(sample["soc"]))
-        self.values["Time (min)"].set(str(sample["time_minutes"]))
+        self.values["Time (min, NaN = no data)"].set(str(sample["time_minutes"]))
         self.values["Voltage (V)"].set(f'{sample["volts"]:.2f}')
         self.values["Current (A)"].set(f'{sample["amps"]:.1f}')
         self.values["Temperature (°C)"].set(str(sample["temperature"]))
@@ -333,11 +341,11 @@ class SimulatorApp(ttk.Frame):
     def _payloads(self):
         try:
             return encode_frames(
-                int(self.values["SOC (%)"].get()),
-                int(self.values["Time (min)"].get()),
+                float(self.values["SOC (%)"].get()),
+                float(self.values["Time (min, NaN = no data)"].get()),
                 float(self.values["Voltage (V)"].get()),
                 float(self.values["Current (A)"].get()),
-                int(self.values["Temperature (°C)"].get()),
+                float(self.values["Temperature (°C)"].get()),
             )
         except ValueError as error:
             raise ValueError(f"Invalid input: {error}") from error

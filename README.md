@@ -13,7 +13,7 @@ Multi-byte values are little endian. Both payloads are eight bytes long.
 | `0x285` | 0-1 | SOC (signed 16-bit) | 0 to 100 %, raw value = % x 10 |
 | `0x285` | 2-3 | Voltage (signed 16-bit) | 0 to 32.00 V, raw value = V x 100 |
 | `0x285` | 4-5 | Temperature (signed 16-bit) | -10.0 to 70.0 °C, raw value = °C x 10 |
-| `0x285` | 6-7 | Current (signed 16-bit) | -300.0 to 300.0 A, raw value = A x 10 |
+| `0x285` | 6-7 | Current (signed 16-bit) | -3276.8 to 3276.7 A, raw value = A x 10 |
 | `0x385` | 0-3 | Remaining time (float32) | Seconds; NaN means no data |
 | `0x385` | 4-7 | Padding | zero |
 
@@ -42,10 +42,10 @@ switch and enter a remaining time to send it with a negative discharge current.
 
 Select **Enable 24 V / 6 kWh battery simulation** to replace the manual fields
 with an 8-cell, approximately 250 Ah LiFePO4 model. It always begins at 100%
-and discharges to 10% over one hour, then charges to 100% over one hour and
+and discharges to 0% over one hour, then charges to 100% over one hour and
 repeats. Each five-second transmission advances the profile by five seconds.
-The discharge power averages approximately 5,400 W, so its one-hour CAN-sample
-integral is 5,400 Wh (90% of the nominal 6,000 Wh battery energy).
+The discharge power averages approximately 6,000 W, so its one-hour CAN-sample
+integral is 6,000 Wh (100% of the nominal 6,000 Wh battery energy).
 
 The discharge profile combines an office base load with smooth HVAC cycles and
 shorter equipment-load variations. Current is calculated from requested power,
@@ -54,7 +54,7 @@ matches the energy profile after deciamp and centivolt CAN rounding. Charging
 uses 96% efficiency and current taper. Voltage follows an 8-cell LiFePO4
 open-circuit curve plus 2 mΩ pack-resistance sag or charge lift.
 Temperature responds to I²R heating, cooling, and ambient variation. During
-discharge, the remaining-time field counts down in seconds to the 10% limit.
+discharge, the remaining-time field counts down in seconds to the 0% limit.
 During charge, when current is zero or positive, the time field is `NaN` (no
 remaining-time data).
 Negative current means discharge and positive current means charge. The

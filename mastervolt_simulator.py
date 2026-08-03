@@ -17,7 +17,7 @@ FRAME_385 = 0x385
 SEND_INTERVAL_MS = 5_000
 SIMULATION_STEP_MINUTES = SEND_INTERVAL_MS / 60_000
 PHASE_DURATION_MINUTES = 60.0
-MIN_SOC = 10.0
+MIN_SOC = 0.0
 USABLE_SOC_PERCENT = 100.0 - MIN_SOC
 # Compensates for deciamp and centivolt CAN fields at five-second sampling.
 CAN_ENERGY_CALIBRATION = 0.99964
@@ -188,8 +188,8 @@ def encode_frames(
         raise ValueError("Remaining time must be non-negative or NaN (no data)")
     if not 0 <= volts <= 32:
         raise ValueError("Voltage must be between 0 and 32.00 V")
-    if not -300 <= amps <= 300:
-        raise ValueError("Current must be between -300 and 300 A")
+    if not -3276.8 <= amps <= 3276.7:
+        raise ValueError("Current must be between -3276.8 and 3276.7 A")
     if not -10 <= temp <= 70:
         raise ValueError("Temperature must be between -10 and 70 °C")
 
@@ -296,7 +296,7 @@ class SimulatorApp(ttk.Frame):
             (0, 100, 0.1),
             (0, 3.4028235e38, 1),
             (0, 32, 0.01),
-            (-300, 300, 0.1),
+            (-3276.8, 3276.7, 0.1),
             (-10, 70, 0.1),
         ]
         for row, ((label, variable), (low, high, step)) in enumerate(zip(self.values.items(), limits), 1):
@@ -353,7 +353,7 @@ class SimulatorApp(ttk.Frame):
         self.values["Current (A)"].set(f'{sample["amps"]:.1f}')
         self.values["Temperature (°C)"].set(str(sample["temperature"]))
         arrow = "▼" if sample["mode"] == "Discharging" else "▲"
-        limit = "10%" if sample["mode"] == "Discharging" else "100%"
+        limit = "0%" if sample["mode"] == "Discharging" else "100%"
         self.cycle_status.set(f'{arrow} {sample["mode"]} — next limit: {limit}')
 
     def toggle(self):

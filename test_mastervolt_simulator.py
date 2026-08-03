@@ -36,7 +36,7 @@ class EncodeFramesTests(unittest.TestCase):
             (-1, 0, 0, 0, 0),
             (0, -1, 0, 0, 0),
             (0, 0, 32.01, 0, 0),
-            (0, 0, 0, 301, 0),
+            (0, 0, 0, 3276.8, 0),
             (0, 0, 0, 0, 71),
         ]
         for values in invalid:
@@ -67,16 +67,16 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertLessEqual(sample["volts"], 29.2)
         self.assertEqual(sample["amps"], round(sample["amps"], 1))
 
-    def test_cycles_at_ten_and_one_hundred_percent(self):
+    def test_cycles_at_zero_and_one_hundred_percent(self):
         simulation = BatterySimulation()
         discharged = simulation.step(60)
         self.assertEqual(discharged["mode"], "Discharging")
-        self.assertEqual(discharged["soc"], 10)
+        self.assertEqual(discharged["soc"], 0)
         self.assertLess(discharged["amps"], 0)
 
         charging = simulation.step(0)
         self.assertEqual(charging["mode"], "Charging")
-        self.assertEqual(charging["soc"], 10)
+        self.assertEqual(charging["soc"], 0)
         self.assertGreater(charging["amps"], 0)
         self.assertTrue(math.isnan(charging["remaining_seconds"]))
 
@@ -95,10 +95,10 @@ class BatterySimulationTests(unittest.TestCase):
         sample = simulation.step(5)
         self.assertEqual(sample["remaining_seconds"], 3_300)
         self.assertEqual(sample["mode"], "Discharging")
-        self.assertGreater(sample["soc"], 10)
+        self.assertGreater(sample["soc"], 0)
 
     def test_non_negative_current_reports_unknown_remaining_time(self):
-        simulation = BatterySimulation(mode="Charging", soc=10)
+        simulation = BatterySimulation(mode="Charging", soc=0)
         sample = simulation.step(5)
         self.assertGreaterEqual(sample["amps"], 0)
         self.assertTrue(math.isnan(sample["remaining_seconds"]))
@@ -114,7 +114,7 @@ class BatterySimulationTests(unittest.TestCase):
         expected_wh = sample["volts"] * -sample["amps"] * (0.01 / 60)
         self.assertAlmostEqual(removed_wh, expected_wh, places=2)
 
-    def test_office_profile_integrates_to_5400_wh_in_one_hour(self):
+    def test_office_profile_integrates_to_6000_wh_in_one_hour(self):
         simulation = BatterySimulation()
         step_minutes = 5 / 60
         discharge_wh = 0.0
@@ -125,13 +125,13 @@ class BatterySimulationTests(unittest.TestCase):
             powers.append(power)
             discharge_wh += power * step_minutes / 60
 
-        self.assertAlmostEqual(discharge_wh, 5_400, delta=0.5)
-        self.assertEqual(sample["soc"], 10)
+        self.assertAlmostEqual(discharge_wh, 6_000, delta=0.5)
+        self.assertEqual(sample["soc"], 0)
         self.assertEqual(sample["mode"], "Discharging")
         self.assertGreater(max(powers) - min(powers), 1_000)
 
     def test_charge_tapers_and_voltage_rises_under_charge(self):
-        simulation = BatterySimulation(mode="Charging", soc=10)
+        simulation = BatterySimulation(mode="Charging", soc=0)
         start = simulation.step(0)
         simulation.phase_elapsed_minutes = 59
         simulation._update_soc()

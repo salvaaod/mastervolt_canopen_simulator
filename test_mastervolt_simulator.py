@@ -2,7 +2,7 @@ import math
 import struct
 import unittest
 
-from mastervolt_simulator import BatterySimulation, encode_frames
+from mastervolt_simulator import BatterySimulation, encode_frames, resolve_remaining_seconds
 
 
 class EncodeFramesTests(unittest.TestCase):
@@ -42,6 +42,18 @@ class EncodeFramesTests(unittest.TestCase):
         for values in invalid:
             with self.subTest(values=values), self.assertRaises(ValueError):
                 encode_frames(*values)
+
+
+class RemainingTimeTests(unittest.TestCase):
+    def test_positive_and_zero_current_have_no_remaining_time(self):
+        self.assertTrue(math.isnan(resolve_remaining_seconds("120", 1)))
+        self.assertTrue(math.isnan(resolve_remaining_seconds("120", 0)))
+
+    def test_negative_current_uses_static_remaining_time(self):
+        self.assertEqual(resolve_remaining_seconds("120.5", -1), 120.5)
+
+    def test_static_nan_switch_forces_no_data(self):
+        self.assertTrue(math.isnan(resolve_remaining_seconds("not a number", -1, True)))
 
 
 class BatterySimulationTests(unittest.TestCase):

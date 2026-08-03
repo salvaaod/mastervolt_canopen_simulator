@@ -33,6 +33,11 @@ Multi-byte values are little endian. Both payloads are eight bytes long.
    sent immediately, then both frames are sent every five seconds. Values edited
    while running are used for the next transmission.
 
+For static values, select **Static values: send remaining time as NaN** to send
+the PGN `0x385` no-data value instead of the entered remaining time. The app
+also sends `NaN` automatically whenever current is zero or positive. Clear the
+switch and enter a remaining time to send it with a negative discharge current.
+
 ## Battery simulation mode
 
 Select **Enable 24 V / 6 kWh battery simulation** to replace the manual fields

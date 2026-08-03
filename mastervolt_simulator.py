@@ -202,6 +202,13 @@ def encode_frames(
     return data_285, data_385
 
 
+def resolve_remaining_seconds(value: str, amps: float, force_nan: bool = False) -> float:
+    """Resolve the remaining-time input, using NaN when no time is available."""
+    if force_nan or amps >= 0:
+        return math.nan
+    return float(value)
+
+
 class GCANDevice:
     def __init__(self, config: DeviceConfig):
         self.config = config
@@ -273,6 +280,7 @@ class SimulatorApp(ttk.Frame):
         }
         self.status = tk.StringVar(value="Disconnected")
         self.simulation_enabled = tk.BooleanVar(value=False)
+        self.static_remaining_nan = tk.BooleanVar(value=False)
         self.cycle_status = tk.StringVar(value="Simulation off")
         self.inputs = []
         self._build()
@@ -298,28 +306,42 @@ class SimulatorApp(ttk.Frame):
             )
             input_widget.grid(row=row, column=1, sticky="ew", pady=3)
             self.inputs.append(input_widget)
+        self.remaining_time_input = self.inputs[1]
+        self.static_nan_control = ttk.Checkbutton(
+            self,
+            text="Static values: send remaining time as NaN",
+            variable=self.static_remaining_nan,
+            command=self.toggle_static_remaining_nan,
+        )
+        self.static_nan_control.grid(row=6, column=0, columnspan=2, sticky="w", pady=(10, 2))
         ttk.Checkbutton(
             self,
             text="Enable 24 V / 6 kWh battery simulation",
             variable=self.simulation_enabled,
             command=self.toggle_simulation,
-        ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(10, 2))
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=2)
         ttk.Label(self, textvariable=self.cycle_status, font=("TkDefaultFont", 10, "bold")).grid(
-            row=7, column=0, columnspan=2, sticky="w", pady=(0, 4)
+            row=8, column=0, columnspan=2, sticky="w", pady=(0, 4)
         )
         self.button = ttk.Button(self, text="Connect and start", command=self.toggle)
-        self.button.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(8, 6))
-        ttk.Label(self, textvariable=self.status, wraplength=390).grid(row=9, column=0, columnspan=2)
+        self.button.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(8, 6))
+        ttk.Label(self, textvariable=self.status, wraplength=390).grid(row=10, column=0, columnspan=2)
         self.root.protocol("WM_DELETE_WINDOW", self.shutdown)
+
+    def toggle_static_remaining_nan(self):
+        state = "disabled" if self.static_remaining_nan.get() else "normal"
+        self.remaining_time_input.configure(state=state)
 
     def toggle_simulation(self):
         enabled = self.simulation_enabled.get()
         for input_widget in self.inputs:
             input_widget.configure(state="disabled" if enabled else "normal")
+        self.static_nan_control.configure(state="disabled" if enabled else "normal")
         if enabled:
             self.simulation.reset()
             self._show_simulation_values(self.simulation.step(0))
         else:
+            self.toggle_static_remaining_nan()
             self.cycle_status.set("Simulation off — manual values enabled")
 
     def _show_simulation_values(self, sample):
@@ -349,11 +371,17 @@ class SimulatorApp(ttk.Frame):
 
     def _payloads(self):
         try:
+            amps = float(self.values["Current (A)"].get())
+            remaining_seconds = resolve_remaining_seconds(
+                self.values["Remaining time (s, NaN = no data)"].get(),
+                amps,
+                self.static_remaining_nan.get() and not self.simulation_enabled.get(),
+            )
             return encode_frames(
                 float(self.values["SOC (%)"].get()),
-                float(self.values["Remaining time (s, NaN = no data)"].get()),
+                remaining_seconds,
                 float(self.values["Voltage (V)"].get()),
-                float(self.values["Current (A)"].get()),
+                amps,
                 float(self.values["Temperature (°C)"].get()),
             )
         except ValueError as error:

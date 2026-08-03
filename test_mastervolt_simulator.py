@@ -55,20 +55,20 @@ class BatterySimulationTests(unittest.TestCase):
         self.assertLessEqual(sample["volts"], 29.2)
         self.assertEqual(sample["amps"], round(sample["amps"], 1))
 
-    def test_cycles_at_twenty_and_one_hundred_percent(self):
+    def test_cycles_at_ten_and_one_hundred_percent(self):
         simulation = BatterySimulation()
-        discharged = simulation.step(30)
+        discharged = simulation.step(60)
         self.assertEqual(discharged["mode"], "Discharging")
-        self.assertEqual(discharged["soc"], 20)
+        self.assertEqual(discharged["soc"], 10)
         self.assertLess(discharged["amps"], 0)
 
         charging = simulation.step(0)
         self.assertEqual(charging["mode"], "Charging")
-        self.assertEqual(charging["soc"], 20)
+        self.assertEqual(charging["soc"], 10)
         self.assertGreater(charging["amps"], 0)
         self.assertTrue(math.isnan(charging["remaining_seconds"]))
 
-        charged = simulation.step(30)
+        charged = simulation.step(60)
         self.assertEqual(charged["mode"], "Charging")
         self.assertEqual(charged["soc"], 100)
         self.assertGreater(charged["amps"], 0)
@@ -81,12 +81,12 @@ class BatterySimulationTests(unittest.TestCase):
     def test_each_phase_reports_remaining_time_in_seconds(self):
         simulation = BatterySimulation()
         sample = simulation.step(5)
-        self.assertEqual(sample["remaining_seconds"], 1_500)
+        self.assertEqual(sample["remaining_seconds"], 3_300)
         self.assertEqual(sample["mode"], "Discharging")
-        self.assertGreater(sample["soc"], 20)
+        self.assertGreater(sample["soc"], 10)
 
     def test_non_negative_current_reports_unknown_remaining_time(self):
-        simulation = BatterySimulation(mode="Charging", soc=20)
+        simulation = BatterySimulation(mode="Charging", soc=10)
         sample = simulation.step(5)
         self.assertGreaterEqual(sample["amps"], 0)
         self.assertTrue(math.isnan(sample["remaining_seconds"]))
@@ -102,26 +102,26 @@ class BatterySimulationTests(unittest.TestCase):
         expected_wh = sample["volts"] * -sample["amps"] * (0.01 / 60)
         self.assertAlmostEqual(removed_wh, expected_wh, places=2)
 
-    def test_office_profile_integrates_to_1440_wh_in_thirty_minutes(self):
+    def test_office_profile_integrates_to_5400_wh_in_one_hour(self):
         simulation = BatterySimulation()
         step_minutes = 5 / 60
         discharge_wh = 0.0
         powers = []
-        for _ in range(round(30 / step_minutes)):
+        for _ in range(round(60 / step_minutes)):
             sample = simulation.step(step_minutes)
             power = sample["volts"] * -sample["amps"]
             powers.append(power)
             discharge_wh += power * step_minutes / 60
 
-        self.assertAlmostEqual(discharge_wh, 1_440, delta=0.25)
-        self.assertEqual(sample["soc"], 20)
+        self.assertAlmostEqual(discharge_wh, 5_400, delta=0.5)
+        self.assertEqual(sample["soc"], 10)
         self.assertEqual(sample["mode"], "Discharging")
         self.assertGreater(max(powers) - min(powers), 1_000)
 
     def test_charge_tapers_and_voltage_rises_under_charge(self):
-        simulation = BatterySimulation(mode="Charging", soc=20)
+        simulation = BatterySimulation(mode="Charging", soc=10)
         start = simulation.step(0)
-        simulation.phase_elapsed_minutes = 29
+        simulation.phase_elapsed_minutes = 59
         simulation._update_soc()
         near_full = simulation.step(0)
         self.assertGreater(abs(start["amps"]), abs(near_full["amps"]))

@@ -16,9 +16,11 @@ FRAME_285 = 0x285
 FRAME_385 = 0x385
 SEND_INTERVAL_MS = 5_000
 SIMULATION_STEP_MINUTES = SEND_INTERVAL_MS / 60_000
-PHASE_DURATION_MINUTES = 30.0
+PHASE_DURATION_MINUTES = 60.0
+MIN_SOC = 10.0
+USABLE_SOC_PERCENT = 100.0 - MIN_SOC
 # Compensates for deciamp and centivolt CAN fields at five-second sampling.
-CAN_ENERGY_CALIBRATION = 0.99938
+CAN_ENERGY_CALIBRATION = 0.99964
 
 
 class CAN_OBJ(ctypes.Structure):
@@ -59,10 +61,10 @@ class DeviceConfig:
 
 @dataclass
 class BatterySimulation:
-    """Timed, variable 24 V / 75 Ah LiFePO4 charge-cycle model."""
+    """Timed, variable 24 V / 6 kWh LiFePO4 charge-cycle model."""
 
-    capacity_ah: float = 75.0
-    energy_wh: float = 1_800.0
+    capacity_ah: float = 250.0
+    energy_wh: float = 6_000.0
     soc: float = 100.0
     mode: str = "Discharging"
     temperature: float = 25.0
@@ -85,23 +87,23 @@ class BatterySimulation:
             profile += 0.28 / (2.0 * math.pi) * (1.0 - math.cos(2.0 * math.pi * progress))
             profile += 0.10 / (6.0 * math.pi) * (1.0 - math.cos(6.0 * math.pi * progress))
             profile += 0.06 / (14.0 * math.pi) * (1.0 - math.cos(14.0 * math.pi * progress))
-            self.soc = 100.0 - 80.0 * profile
+            self.soc = 100.0 - USABLE_SOC_PERCENT * profile
         else:
             # Integral of a charge current which tapers as the battery fills.
             profile = 1.2 * progress - 0.2 * progress**2
             profile += 0.1 / (4.0 * math.pi) * (1.0 - math.cos(4.0 * math.pi * progress))
-            self.soc = 20.0 + 80.0 * profile
+            self.soc = MIN_SOC + USABLE_SOC_PERCENT * profile
 
     def _current(self) -> float:
         progress = min(1.0, self.phase_elapsed_minutes / PHASE_DURATION_MINUTES)
         average_power = (
             self.energy_wh
-            * 0.8
+            * (USABLE_SOC_PERCENT / 100.0)
             / (PHASE_DURATION_MINUTES / 60.0)
             * CAN_ENERGY_CALIBRATION
         )
         resistance = 0.002
-        normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
+        normalized = max(0.0, min(1.0, (self.soc - MIN_SOC) / USABLE_SOC_PERCENT))
         open_circuit = self._open_circuit_voltage(normalized)
         if self.mode == "Discharging":
             shape = 1.0 + 0.28 * math.sin(2.0 * math.pi * progress)
@@ -128,10 +130,10 @@ class BatterySimulation:
         return voltage + 0.75 * normalized**8 - 0.55 * (1.0 - normalized) ** 7
 
     def _voltage(self, current: float) -> float:
-        normalized = max(0.0, min(1.0, (self.soc - 20.0) / 80.0))
+        normalized = max(0.0, min(1.0, (self.soc - MIN_SOC) / USABLE_SOC_PERCENT))
         # An 8-cell LiFePO4 plateau with steeper knees near either limit.
         open_circuit = self._open_circuit_voltage(normalized)
-        # The 75 Ah pack is modelled at about 2 milliohms, including
+        # The 250 Ah pack is modelled at about 2 milliohms, including
         # cells and interconnects, to give load sag and charge lift.
         loaded = open_circuit + current * 0.002
         if current > 0:
@@ -143,7 +145,7 @@ class BatterySimulation:
     def step(self, minutes: float = SIMULATION_STEP_MINUTES) -> dict[str, float | int | str]:
         """Advance the model and return values ready for the CAN fields."""
         # Keep the boundary sample in the phase that produced it. The following
-        # sample changes direction, ensuring each current profile spans 30 min.
+        # sample changes direction, ensuring each current profile spans 60 min.
         if self.phase_elapsed_minutes >= PHASE_DURATION_MINUTES - 1e-9:
             self.phase_elapsed_minutes -= PHASE_DURATION_MINUTES
             self.mode = "Charging" if self.mode == "Discharging" else "Discharging"
@@ -298,7 +300,7 @@ class SimulatorApp(ttk.Frame):
             self.inputs.append(input_widget)
         ttk.Checkbutton(
             self,
-            text="Enable 24 V / 75 Ah battery simulation",
+            text="Enable 24 V / 6 kWh battery simulation",
             variable=self.simulation_enabled,
             command=self.toggle_simulation,
         ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(10, 2))
@@ -329,7 +331,7 @@ class SimulatorApp(ttk.Frame):
         self.values["Current (A)"].set(f'{sample["amps"]:.1f}')
         self.values["Temperature (°C)"].set(str(sample["temperature"]))
         arrow = "▼" if sample["mode"] == "Discharging" else "▲"
-        limit = "20%" if sample["mode"] == "Discharging" else "100%"
+        limit = "10%" if sample["mode"] == "Discharging" else "100%"
         self.cycle_status.set(f'{arrow} {sample["mode"]} — next limit: {limit}')
 
     def toggle(self):

@@ -35,12 +35,12 @@ Multi-byte values are little endian. Both payloads are eight bytes long.
 
 ## Battery simulation mode
 
-Select **Enable 24 V / 75 Ah battery simulation** to replace the manual fields
-with an 8-cell LiFePO4 model. It always begins at 100% and discharges to 20%
-over 30 minutes, then charges to 100% over 30 minutes and repeats. Each
-five-second transmission advances the profile by five seconds. The discharge
-power averages approximately 2,880 W, so its real 30-minute CAN-sample integral
-is 1,440 Wh (80% of the nominal 1,800 Wh battery energy).
+Select **Enable 24 V / 6 kWh battery simulation** to replace the manual fields
+with an 8-cell, approximately 250 Ah LiFePO4 model. It always begins at 100%
+and discharges to 10% over one hour, then charges to 100% over one hour and
+repeats. Each five-second transmission advances the profile by five seconds.
+The discharge power averages approximately 5,400 W, so its one-hour CAN-sample
+integral is 5,400 Wh (90% of the nominal 6,000 Wh battery energy).
 
 The discharge profile combines an office base load with smooth HVAC cycles and
 shorter equipment-load variations. Current is calculated from requested power,
@@ -49,7 +49,7 @@ matches the energy profile after deciamp and centivolt CAN rounding. Charging
 uses 96% efficiency and current taper. Voltage follows an 8-cell LiFePO4
 open-circuit curve plus 2 mΩ pack-resistance sag or charge lift.
 Temperature responds to I²R heating, cooling, and ambient variation. During
-discharge, the remaining-time field counts down in seconds to the 20% limit.
+discharge, the remaining-time field counts down in seconds to the 10% limit.
 During charge, when current is zero or positive, the time field is `NaN` (no
 remaining-time data).
 Negative current means discharge and positive current means charge. The

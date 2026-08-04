@@ -198,7 +198,10 @@ def encode_frames(
     raw_temp = round(temp * 10)
     raw_amps = round(amps * 10)
     data_285 = struct.pack("<hhhh", raw_soc, raw_volts, raw_temp, raw_amps)
-    data_385 = struct.pack("<f", remaining_seconds) + bytes(4)
+    raw_remaining = bytes([0xFF]) * 4 if math.isnan(remaining_seconds) else struct.pack(
+        "<f", remaining_seconds
+    )
+    data_385 = raw_remaining + bytes(4)
     return data_285, data_385
 
 

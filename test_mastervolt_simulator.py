@@ -9,6 +9,7 @@ class EncodeFramesTests(unittest.TestCase):
     def test_encodes_signed_little_endian_values(self):
         frame_285, frame_385 = encode_frames(100, float("nan"), 32.0, -300, -10)
         self.assertEqual(frame_285, struct.pack("<hhhh", 1000, 3200, -100, -3000))
+        self.assertEqual(frame_385[:4], bytes([0xFF]) * 4)
         self.assertTrue(math.isnan(struct.unpack("<f", frame_385[:4])[0]))
         self.assertEqual(frame_385[4:], bytes(4))
 

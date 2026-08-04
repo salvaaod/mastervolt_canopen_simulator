@@ -14,7 +14,7 @@ Multi-byte values are little endian. Both payloads are eight bytes long.
 | `0x285` | 2-3 | Voltage (signed 16-bit) | 0 to 32.00 V, raw value = V x 100 |
 | `0x285` | 4-5 | Temperature (signed 16-bit) | -10.0 to 70.0 °C, raw value = °C x 10 |
 | `0x285` | 6-7 | Current (signed 16-bit) | -3276.8 to 3276.7 A, raw value = A x 10 |
-| `0x385` | 0-3 | Remaining time (float32) | Seconds; NaN means no data |
+| `0x385` | 0-3 | Remaining time (float32) | Seconds; `FF FF FF FF` means NaN / no data |
 | `0x385` | 4-7 | Padding | zero |
 
 ## Run
@@ -34,9 +34,10 @@ Multi-byte values are little endian. Both payloads are eight bytes long.
    while running are used for the next transmission.
 
 For static values, select **Static values: send remaining time as NaN** to send
-the PGN `0x385` no-data value instead of the entered remaining time. The app
-also sends `NaN` automatically whenever current is zero or positive. Clear the
-switch and enter a remaining time to send it with a negative discharge current.
+the PGN `0x385` no-data bytes `FF FF FF FF` instead of the entered remaining
+time. The app also sends `NaN` automatically whenever current is zero or
+positive. Clear the switch and enter a remaining time to send it with a negative
+discharge current.
 
 ## Battery simulation mode
 
